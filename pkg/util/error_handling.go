@@ -18,7 +18,6 @@ package util
 
 import (
 	"errors"
-	"os"
 
 	"github.com/dynatrace-oss/dynatrace-monitoring-as-code/pkg/util/log"
 )
@@ -63,7 +62,6 @@ func PrintErrors(errors []error) {
 func FailOnError(err error, msg string) {
 	if err != nil {
 		log.Fatal(msg + ": " + err.Error())
-		os.Exit(1)
 	}
 }
 
