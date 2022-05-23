@@ -96,7 +96,7 @@ Examples:
 `
 
 	app.Before = func(c *cli.Context) error {
-		err := util.SetupLogging(c.Bool("verbose"))
+		err := util.SetupLogging(fs, c.Bool("verbose"))
 
 		if err != nil {
 			return err
@@ -219,7 +219,7 @@ func getDeployCommand(fs afero.Fs) cli.Command {
 		UsageText: "deploy [command options] [working directory]",
 		ArgsUsage: "[working directory]",
 		Before: func(c *cli.Context) error {
-			err := util.SetupLogging(c.Bool("verbose"))
+			err := util.SetupLogging(fs, c.Bool("verbose"))
 
 			if err != nil {
 				return err
@@ -295,7 +295,7 @@ func getDownloadCommand(fs afero.Fs) cli.Command {
 		Usage:     "download the given environment",
 		UsageText: "download [command options] [working directory]",
 		Before: func(c *cli.Context) error {
-			err := util.SetupLogging(c.Bool("verbose"))
+			err := util.SetupLogging(fs, c.Bool("verbose"))
 
 			if err != nil {
 				return err

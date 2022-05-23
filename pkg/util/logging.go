@@ -18,6 +18,7 @@ package util
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"os"
@@ -25,53 +26,54 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jcelliott/lumber"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/afero"
 )
 
 // Log is the shared Lumber Logger logging to console and after calling SetupLogging also to file
-var Log lumber.Logger = lumber.NewConsoleLogger(lumber.INFO)
+var Log *log.Logger
 
-var requestLogFile *os.File
-var responseLogFile *os.File
+var requestLogFile afero.File
+var responseLogFile afero.File
 
 // SetupLogging is used to initialize the shared file Logger once the necessary setup config is available
-func SetupLogging(verbose bool) error {
-	multiLog := lumber.NewMultiLogger()
-	consoleLog := lumber.NewConsoleLogger(lumber.INFO)
+func SetupLogging(fs afero.Fs, verbose bool) error {
+	Log = log.New()
+	Log.SetLevel(log.InfoLevel)
+	log.SetOutput(os.Stdout)
 	if verbose {
-		consoleLog.Level(lumber.DEBUG)
+		Log.SetLevel(log.DebugLevel)
 	}
-	multiLog.AddLoggers(consoleLog)
-
-	if _, err := os.Stat(".logs"); os.IsNotExist(err) {
-		err = os.Mkdir(".logs", 0777)
+	if _, err := fs.Stat(".logs"); os.IsNotExist(err) {
+		err = fs.Mkdir(".logs", 0777)
 
 		if err != nil {
 			FailOnError(err, "could not create directory")
 		}
 	}
-
 	logName := ".logs" + string(os.PathSeparator) + time.Now().Format("20060102-150405") + ".log"
-	fileLog, err := lumber.NewAppendLogger(logName)
+	file, err := fs.OpenFile(logName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err == nil {
+		Log.SetOutput(io.MultiWriter(os.Stderr, file))
+	} else {
+		Log.Info("Failed to log to file, using default stderr")
+	}
 
 	if err != nil {
 		return err
 	}
-
-	fileLog.Level(lumber.DEBUG)
-	multiLog.AddLoggers(fileLog)
-	Log = multiLog
-
-	err = setupRequestLog()
-
+	err = setupRequestLog(fs)
 	if err != nil {
 		return err
 	}
-
-	return setupResponseLog()
+	err = setupResponseLog(fs)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func setupRequestLog() error {
+func setupRequestLog(fs afero.Fs) error {
 	if logFilePath, found := os.LookupEnv("MONACO_REQUEST_LOG"); found {
 		logFilePath, err := filepath.Abs(logFilePath)
 
@@ -80,7 +82,7 @@ func setupRequestLog() error {
 		}
 
 		Log.Debug("request log activated at %s", logFilePath)
-		handle, err := prepareLogFile(logFilePath)
+		handle, err := prepareLogFile(fs, logFilePath)
 
 		if err != nil {
 			return err
@@ -94,7 +96,7 @@ func setupRequestLog() error {
 	return nil
 }
 
-func setupResponseLog() error {
+func setupResponseLog(fs afero.Fs) error {
 	if logFilePath, found := os.LookupEnv("MONACO_RESPONSE_LOG"); found {
 		logFilePath, err := filepath.Abs(logFilePath)
 
@@ -103,7 +105,7 @@ func setupResponseLog() error {
 		}
 
 		Log.Debug("response log activated at %s", logFilePath)
-		handle, err := prepareLogFile(logFilePath)
+		handle, err := prepareLogFile(fs, logFilePath)
 
 		if err != nil {
 			return err
@@ -117,8 +119,8 @@ func setupResponseLog() error {
 	return nil
 }
 
-func prepareLogFile(file string) (*os.File, error) {
-	return os.OpenFile(file, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+func prepareLogFile(fs afero.Fs, file string) (afero.File, error) {
+	return fs.OpenFile(file, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
 }
 
 func IsRequestLoggingActive() bool {
