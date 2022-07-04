@@ -242,8 +242,15 @@ func uploadConfig(client rest.DynatraceClient, config config.Config, dict map[st
 	if err != nil {
 		return entity, err
 	}
-
-	entity, err = client.UpsertByName(config.GetApi(), name, uploadMap)
+	if config.GetApi().GetId() == "extension" {
+		entity, err = client.UpsertByNameExtension(config.GetApi(), name, config.GetFilePath(), uploadMap)
+		if err != nil {
+			err = fmt.Errorf("%w, responsible config: %s", err, config.GetFilePath())
+		}
+		return entity, err
+	} else {
+		entity, err = client.UpsertByName(config.GetApi(), name, uploadMap)
+	}
 
 	if err != nil {
 		err = fmt.Errorf("%s, responsible config: %s", err.Error(), config.GetFilePath())

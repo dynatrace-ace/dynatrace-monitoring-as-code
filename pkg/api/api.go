@@ -47,6 +47,12 @@ var apiMap = map[string]apiInput{
 	"extension": {
 		apiPath:                      "/api/config/v1/extensions",
 		propertyNameOfGetAllResponse: "extensions",
+		childApis: []apiInput{{
+			id:                           "{EXTENSIONID}",
+			apiPath:                      "/api/config/v1/extensions/{EXTENSIONID}/instances",
+			propertyNameOfGetAllResponse: "configurationsList",
+			isChildApi:                   true,
+		}},
 	},
 	"custom-service-java": {
 		apiPath: "/api/config/v1/service/customServices/java",
@@ -252,12 +258,18 @@ type Api interface {
 	IsStandardApi() bool
 	IsSingleConfigurationApi() bool
 	NewIdValue() Value
+	HasChildApis() bool
+	GetChildApis() []Api
+	UpdateApiPath(apiId string) Api
 }
 
 type apiInput struct {
+	id                           string
 	apiPath                      string
 	propertyNameOfGetAllResponse string
 	isSingleConfigurationApi     bool
+	isChildApi                   bool
+	childApis                    []apiInput
 }
 
 type apiImpl struct {
@@ -265,6 +277,8 @@ type apiImpl struct {
 	apiPath                      string
 	propertyNameOfGetAllResponse string
 	isSingleConfigurationApi     bool
+	isChildApi                   bool
+	childApis                    []Api
 }
 
 func NewApis() map[string]Api {
@@ -279,6 +293,9 @@ func NewApis() map[string]Api {
 }
 
 func newApi(id string, input apiInput) Api {
+	if input.childApis != nil {
+		return NewNestedApi(id, input.apiPath, input.propertyNameOfGetAllResponse, input.childApis)
+	}
 	if input.isSingleConfigurationApi {
 		return NewSingleConfigurationApi(id, input.apiPath)
 	}
@@ -287,20 +304,29 @@ func newApi(id string, input apiInput) Api {
 		return NewStandardApi(id, input.apiPath)
 	}
 
-	return NewApi(id, input.apiPath, input.propertyNameOfGetAllResponse, false)
+	return NewApi(id, input.apiPath, input.propertyNameOfGetAllResponse, false, nil, false)
+}
+func NewNestedApi(id string, apiPath string, getProperty string, childApis []apiInput) Api {
+	var newApis []Api
+	for _, details := range childApis {
+		childApi := NewApi(details.id, details.apiPath, details.propertyNameOfGetAllResponse, details.isSingleConfigurationApi, nil, details.isChildApi)
+		newApis = append(newApis, childApi)
+	}
+	return NewApi(id, apiPath, getProperty, false, newApis, false)
 }
 
 // NewStandardApi creates an API with propertyNameOfGetAllResponse set to "values"
 func NewStandardApi(id string, apiPath string) Api {
-	return NewApi(id, apiPath, standardApiPropertyNameOfGetAllResponse, false)
+	return NewApi(id, apiPath, standardApiPropertyNameOfGetAllResponse, false, nil, false)
 }
 
 // NewSingleConfigurationApi creates an API with isSingleConfigurationApi set to true
 func NewSingleConfigurationApi(id string, apiPath string) Api {
-	return NewApi(id, apiPath, "", true)
+	return NewApi(id, apiPath, "", true, nil, false)
 }
 
-func NewApi(id string, apiPath string, propertyNameOfGetAllResponse string, isSingleConfigurationApi bool) Api {
+func NewApi(id string, apiPath string, propertyNameOfGetAllResponse string, isSingleConfigurationApi bool,
+	childApis []Api, isChildApi bool) Api {
 
 	// TODO log warning if the user tries to create an API with a id not present in map above
 	// This means that a user runs monaco with an untested api
@@ -310,6 +336,8 @@ func NewApi(id string, apiPath string, propertyNameOfGetAllResponse string, isSi
 		apiPath:                      apiPath,
 		propertyNameOfGetAllResponse: propertyNameOfGetAllResponse,
 		isSingleConfigurationApi:     isSingleConfigurationApi,
+		childApis:                    childApis,
+		isChildApi:                   isChildApi,
 	}
 }
 
@@ -364,4 +392,18 @@ func ContainsApiName(path string) bool {
 		}
 	}
 	return false
+}
+func (a *apiImpl) HasChildApis() bool {
+	return a.childApis != nil
+}
+func (a *apiImpl) GetChildApis() []Api {
+	return a.childApis
+}
+func (a *apiImpl) UpdateApiPath(apiId string) Api {
+	return NewApi(strings.ReplaceAll(a.id, "{EXTENSIONID}", apiId),
+		strings.ReplaceAll(a.apiPath, "{EXTENSIONID}", apiId),
+		a.propertyNameOfGetAllResponse,
+		a.isSingleConfigurationApi,
+		nil,
+		false)
 }

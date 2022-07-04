@@ -123,8 +123,14 @@ func downloadConfigFromEnvironment(fs afero.Fs, environment environment.Environm
 
 		// Retrieves object from single configuration API
 		isSingleConfigurationApi := api.IsSingleConfigurationApi()
+		hasChildApi := api.HasChildApis()
 		if isSingleConfigurationApi {
 			errorAPI := createConfigsFromSingleConfigurationAPI(fs, api, token, path, client, jcreator, ycreator)
+			if errorAPI != nil {
+				util.Log.Error("error getting configs from API %v %v", api.GetId())
+			}
+		} else if hasChildApi {
+			errorAPI := createConfigsFromNestedApi(fs, api, token, path, client, jcreator, ycreator)
 			if errorAPI != nil {
 				util.Log.Error("error getting configs from API %v %v", api.GetId())
 			}
@@ -183,7 +189,68 @@ func createConfigsFromSingleConfigurationAPI(
 
 	return nil
 }
+func createConfigsFromNestedApi(
+	fs afero.Fs,
+	api api.Api,
+	token string,
+	fullpath string,
+	client rest.DynatraceClient,
+	jcreator jsoncreator.JSONCreator,
+	ycreator yamlcreator.YamlCreator,
+) (err error) {
+	//retrieves all objects for the main api
+	values, err := client.List(api)
+	if err != nil {
+		util.Log.Error("error getting client list from api %v %v", api.GetId(), err)
+		return err
+	}
+	if len(values) == 0 {
+		util.Log.Info("No elements for API %s", api.GetId())
+		return nil
+	}
 
+	subPath, err := createConfigsFolder(fs, api, fullpath)
+	if err != nil {
+		util.Log.Error("error creating folder for api %v %v", api.GetId(), err)
+		return err
+	}
+	for _, val := range values {
+		util.Log.Debug("getting detail %s", val)
+		cont++
+		util.Log.Debug("REQUEST counter %v", cont)
+		_, cleanName, filter, err := jcreator.CreateJSONConfig(fs, client, api, val, subPath)
+		if err != nil {
+			util.Log.Error("error creating config api json file: %v", err)
+			continue
+		}
+		if filter {
+			continue
+		}
+		//jsonFileName := cleanName + ".json"
+		//ycreator.UpdateConfig(val.Id, val.Name, jsonFileName)
+		ycreator.AddConfig(cleanName, val.Name)
+		childApis := api.GetChildApis()
+		for _, child := range childApis {
+			childPath := filepath.Join(fullpath, api.GetId())
+			newApi := child.UpdateApiPath(val.Id)
+			jcreatorChild := jsoncreator.NewJSONCreator()
+			ycreatorChild := yamlcreator.NewYamlConfig()
+			err := createConfigsFromAPI(fs, newApi, token, childPath, client, jcreatorChild, ycreatorChild)
+			if err != nil {
+				util.Log.Error("error getting nested api: %v", err)
+				return err
+			}
+		}
+	}
+	apiId := api.GetId()
+	err = ycreator.CreateYamlFile(fs, subPath, apiId)
+	if err != nil {
+		util.Log.Error("error creating config api yaml file: %v", err)
+		return err
+	}
+
+	return nil
+}
 func createConfigsFromAPI(
 	fs afero.Fs,
 	api api.Api,

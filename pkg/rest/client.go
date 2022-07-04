@@ -20,6 +20,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/dynatrace-oss/dynatrace-monitoring-as-code/pkg/util"
@@ -62,7 +63,7 @@ type DynatraceClient interface {
 	//    POST <environment-url>/api/config/v1/alertingProfiles ... afterwards, if the config is not yet available
 	//    PUT <environment-url>/api/config/v1/alertingProfiles/<id> ... instead of POST, if the config is already available
 	UpsertByName(a Api, name string, payload []byte) (entity DynatraceEntity, err error)
-
+	UpsertByNameExtension(a Api, name string, filename string, payload []byte) (entity DynatraceEntity, err error)
 	// Delete removed a given config for a given API using its name.
 	// It calls the underlying GET and DELETE endpoints for the API. E.g. for alerting profiles this would be:
 	//    GET <environment-url>/api/config/v1/alertingProfiles ... to get the id of the existing config
@@ -174,5 +175,20 @@ func (d *dynatraceClientImpl) UpsertByName(api Api, name string, payload []byte)
 		fullUrl := api.GetUrlFromEnvironmentUrl(d.environmentUrl)
 		return uploadExtension(d.client, fullUrl, name, payload, d.token)
 	}
+	if api.HasChildApis() {
+		return upsertDynatraceObject(d.client, d.environmentUrl, name, api, payload, d.token)
+	}
 	return upsertDynatraceObject(d.client, d.environmentUrl, name, api, payload, d.token)
+}
+func (d *dynatraceClientImpl) UpsertByNameExtension(api Api, name string, filename string, payload []byte) (entity DynatraceEntity, err error) {
+	split := strings.Split(filename, string(os.PathSeparator))
+	val := split[len(split)-2]
+	//if the word extension is on the final dir then is not a child . Only works for extensions for now
+	if !strings.Contains(val, "extension") {
+		return upsertDynatraceEntityByExtension(d.client, d.environmentUrl, name, val, api, payload, d.token)
+	} else {
+		fullUrl := api.GetUrlFromEnvironmentUrl(d.environmentUrl)
+		return uploadExtension(d.client, fullUrl, name, payload, d.token)
+	}
+
 }

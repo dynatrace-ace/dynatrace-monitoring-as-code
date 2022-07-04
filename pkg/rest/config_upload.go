@@ -70,7 +70,37 @@ func upsertDynatraceObject(
 		return createDynatraceObject(client, fullUrl, objectName, theApi, body, apiToken)
 	}
 }
+func upsertDynatraceEntityByExtension(
+	client *http.Client,
+	environmentUrl string,
+	objectName string,
+	folderName string,
+	theApi api.Api,
+	payload []byte,
+	apiToken string,
+) (api.DynatraceEntity, error) {
+	fullUrl := theApi.GetUrlFromEnvironmentUrl(environmentUrl)
+	fullUrl = addInstanceUrl(fullUrl, folderName)
+	existingObjectId := ""
+	// Single configuration APIs don't have an id which allows skipping this step
+	var err error
+	existingObjectId, err = getObjectIdIfAlreadyExists(client, theApi, fullUrl, objectName, apiToken)
+	if err != nil {
+		return api.DynatraceEntity{}, err
+	}
 
+	body := payload
+
+	isUpdate := existingObjectId != ""
+	if isUpdate {
+		return updateDynatraceObject(client, fullUrl, objectName, existingObjectId, theApi, body, apiToken)
+	} else {
+		return createDynatraceObject(client, fullUrl, objectName, theApi, body, apiToken)
+	}
+}
+func addInstanceUrl(fullUrl string, folder string) string {
+	return fullUrl + "/" + folder + "/instances"
+}
 func createDynatraceObject(client *http.Client, fullUrl string, objectName string, theApi api.Api, payload []byte, apiToken string) (api.DynatraceEntity, error) {
 	path := fullUrl
 	body := payload
@@ -347,7 +377,7 @@ func getExistingValuesFromEndpoint(client *http.Client, theApi api.Api, url stri
 
 	for {
 
-		err, values, objmap := unmarshalJson(theApi, err, resp)
+		err, values, objmap := unmarshalJson(theApi, err, resp, url)
 		if err != nil {
 			return values, err
 		}
@@ -376,7 +406,7 @@ func addQueryParamsForNonStandardApis(theApi api.Api, url string) string {
 	return url
 }
 
-func unmarshalJson(theApi api.Api, err error, resp Response) (error, []api.Value, map[string]interface{}) {
+func unmarshalJson(theApi api.Api, err error, resp Response, url string) (error, []api.Value, map[string]interface{}) {
 
 	var values []api.Value
 	var objmap map[string]interface{}
@@ -417,7 +447,7 @@ func unmarshalJson(theApi api.Api, err error, resp Response) (error, []api.Value
 
 		} else if !theApi.IsStandardApi() || isReportsApi(theApi) {
 
-			if available, array := isResultArrayAvailable(objmap, theApi); available {
+			if available, array := isResultArrayAvailable(objmap, theApi, url); available {
 				jsonResp, err := translateGenericValues(array, theApi.GetId())
 				if err != nil {
 					return err, nil, nil
@@ -439,9 +469,15 @@ func unmarshalJson(theApi api.Api, err error, resp Response) (error, []api.Value
 	return nil, values, objmap
 }
 
-func isResultArrayAvailable(jsonResponse map[string]interface{}, theApi api.Api) (resultArrayAvailable bool, results []interface{}) {
-	if jsonResponse[theApi.GetPropertyNameOfGetAllResponse()] != nil {
-		return true, jsonResponse[theApi.GetPropertyNameOfGetAllResponse()].([]interface{})
+func isResultArrayAvailable(jsonResponse map[string]interface{}, theApi api.Api, url string) (resultArrayAvailable bool, results []interface{}) {
+	keyField := theApi.GetPropertyNameOfGetAllResponse()
+	//Custom code only works for one use case. Needs refactor
+	if strings.Contains(url, "instance") && theApi.GetId() == "extension" {
+		childApis := theApi.GetChildApis()
+		keyField = childApis[0].GetPropertyNameOfGetAllResponse()
+	}
+	if jsonResponse[keyField] != nil {
+		return true, jsonResponse[keyField].([]interface{})
 	}
 	return false, make([]interface{}, 0)
 }
